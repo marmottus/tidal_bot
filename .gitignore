@@ -1,0 +1,6 @@
+/config
+/.cache
+/.venv
+/.python-version
+__pycache__
+/.session
