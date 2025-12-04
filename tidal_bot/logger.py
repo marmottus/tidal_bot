@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import sys
 
@@ -8,7 +9,8 @@ from rich.logging import RichHandler
 from rich.style import Style
 from rich.text import Span, Text
 
-RICH_FORMAT = logging.Formatter("%(name)-8s " + " %(message)s")
+RICH_FORMAT = logging.Formatter("%(name)s %(message)s")
+DEBUG_MODE = os.getenv("DEBUG_LOGGING", "1") == "1"
 
 
 class _Highlighter(ReprHighlighter):
@@ -33,12 +35,16 @@ class _Highlighter(ReprHighlighter):
 
 def _create_console_logger() -> logging.Handler:
     """Return the console Logger."""
+
     handler = RichHandler(
         rich_tracebacks=True,
         log_time_format="[%H:%M:%S.%f]",
         keywords=[],  # disable rich keywords
         highlighter=_Highlighter(),
         console=Console(file=sys.stdout),
+        show_time=DEBUG_MODE,
+        show_level=DEBUG_MODE,
+        show_path=DEBUG_MODE,
     )
     handler.setFormatter(RICH_FORMAT)
     handler.setLevel(logging.DEBUG)
@@ -56,5 +62,5 @@ def _create_console_logger() -> logging.Handler:
 def init_logging() -> None:
     logging.basicConfig(
         handlers=[_create_console_logger()],
-        level=logging.DEBUG,
+        level=logging.DEBUG if DEBUG_MODE else logging.INFO,
     )
