@@ -15,7 +15,7 @@ define gen_model_cmd
 		--use-specialized-enum \
 		--collapse-root-models \
 		--use-annotated \
-		--target-python-version 3.13 \
+		--target-python-version 3.12 \
 		--output-model-type pydantic_v2.BaseModel
 endef
 
