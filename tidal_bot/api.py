@@ -183,14 +183,18 @@ class Api(ABC):
         ...
 
     @abstractmethod
-    def add_to_playlist(
+    def merge_playlist(
         self,
-        *tracks: Track,
-        playlist_name: str,
+        playlist: Playlist,
         playlist_description: str | None = None,
         parent_folder_name: str | None = None,
     ) -> AddedTracksResult | None:
-        """Add a track to a playlist in a specific folder.
+        """Merge a playlist into the API, creating it if it does not exist.
+
+        Parameters:
+            playlist: Playlist to merge.
+            playlist_description: Optional description for the playlist.
+            parent_folder_name: Optional name of the parent folder to create the playlist in.
 
         Returns an AddedTracksResult containing added, skipped, and not found tracks.
 

@@ -25,9 +25,8 @@ async def main() -> None:
             f"Playlist synced from Spotify {p.uri}" if p.uri is not None else None
         )
 
-        result = tidal.add_to_playlist(
-            *p.tracks,
-            playlist_name=p.name,
+        result = tidal.merge_playlist(
+            playlist=p,
             playlist_description=description,
             parent_folder_name="Eurovision",
         )

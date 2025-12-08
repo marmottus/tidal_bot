@@ -246,10 +246,9 @@ class MySpotify(Api):
     def search_track(self, track: Track) -> Track | None:
         return None
 
-    def add_to_playlist(
+    def merge_playlist(
         self,
-        *tracks: Track,
-        playlist_name: str,
+        playlist: Playlist,
         playlist_description: str | None = None,
         parent_folder_name: str | None = None,
     ) -> AddedTracksResult | None:
