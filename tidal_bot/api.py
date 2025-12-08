@@ -137,6 +137,7 @@ class Playlist:
     name: str
     tracks: list[Track] = field(default_factory=list)
     uri: str | None = None
+    image: bytes | None = None
 
     def name_escaped(self) -> str:
         return _markdown_escape(self.name)

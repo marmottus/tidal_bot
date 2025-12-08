@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 from pathlib import Path
 
+import requests
 import yaml
 from pydantic import ValidationError
 from spotipy.cache_handler import CacheFileHandler
@@ -213,6 +214,22 @@ class MySpotify(Api):
             if filter is not None and not filter(spotify_playlist.name):
                 continue
 
+            image: bytes | None = None
+            if spotify_playlist.images:
+                first_image = spotify_playlist.images[0]
+                if first_image.url is not None:
+                    try:
+                        logger.debug("Fetching album image from %s", first_image.url)
+                        response = requests.get(first_image.url, timeout=5)
+                        response.raise_for_status()
+                        image = response.content
+                    except requests.HTTPError as e:
+                        logger.warning(
+                            "Failed to fetch album image from %s: %s",
+                            first_image.url,
+                            e,
+                        )
+
             tracks = self._get_tracks_from_playlist(spotify_playlist)
             if spotify_playlist.external_urls is not None:
                 uri = spotify_playlist.external_urls.spotify
@@ -220,7 +237,9 @@ class MySpotify(Api):
                 uri = None
 
             playlists.append(
-                Playlist(name=spotify_playlist.name, tracks=tracks, uri=uri)
+                Playlist(
+                    name=spotify_playlist.name, tracks=tracks, uri=uri, image=image
+                )
             )
         return playlists
 
