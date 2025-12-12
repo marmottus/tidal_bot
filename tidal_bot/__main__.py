@@ -14,9 +14,25 @@ def _filter_playlist(name: str) -> bool:
 
 
 async def main() -> None:
-    spotify = MySpotify()
-    tidal = MyTidal()
     bot = TelegramBot()
+
+    spotify = MySpotify()
+    try:
+        await spotify.connect()
+    except TimeoutError as e:
+        logger.error("Spotify connection timed out: %s", e)
+        await bot.send_message(
+            message="⚠️ Spotify connection lost, please refresh token"
+        )
+        return
+
+    tidal = MyTidal()
+    try:
+        await tidal.connect()
+    except TimeoutError as e:
+        logger.error("Tidal connection timed out: %s", e)
+        await bot.send_message(message="⚠️ Tidal connection lost, please refresh token")
+        return
 
     spotify_playlists = spotify.get_playlists(filter=_filter_playlist)
 
@@ -48,7 +64,7 @@ async def main() -> None:
                     f"🎵 Playlist *{p.name_escaped()}*",
                     "",
                     f"✅ *Added*: {len(result.added)}",
-                    f"⏭️*Skipped*: {len(result.skipped)}",
+                    f"⏭️ *Skipped*: {len(result.skipped)}",
                     f"❓ *Not Found*: {len(result.not_found)}",
                     f"❌ *Error*: {len(result.add_error)}",
                 ]

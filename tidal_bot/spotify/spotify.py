@@ -1,4 +1,7 @@
+import asyncio
 import logging
+import sys
+from asyncio import Queue, Task, get_event_loop
 from datetime import timedelta
 from pathlib import Path
 
@@ -19,6 +22,42 @@ from tidal_bot.spotify.model import (
 )
 
 logger = logging.getLogger("spotify")
+
+
+async def _timed_input(prompt: str, timeout: float = 3.0) -> str:
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+
+    loop = get_event_loop()
+    queue: Queue[str] = Queue()
+    tasks: set[Task[None]] = set()
+
+    def _done_callback(task: Task[None]) -> None:
+        tasks.discard(task)
+
+    def _reader() -> None:
+        task = loop.create_task(queue.put(sys.stdin.readline()))
+        tasks.add(task)
+        task.add_done_callback(_done_callback)
+
+    loop.add_reader(sys.stdin.fileno(), _reader)
+
+    try:
+        return await asyncio.wait_for(queue.get(), timeout=timeout)
+    except TimeoutError:
+        logger.error("User input timed out after %.1f seconds", timeout)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        raise
+    finally:
+        logger.debug("Cleaning up input reader")
+
+        loop.remove_reader(sys.stdin.fileno())
+
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        tasks.clear()
 
 
 def _parse_album(spotify_album: SimplifiedAlbumObject) -> Album | None:
@@ -88,7 +127,7 @@ def _parse_track(spotify_track: TrackObject) -> Track | None:
 
 class MySpotify(Api):
     def __init__(self) -> None:
-        logger.info("Authenticating to Spotify API")
+        logger.info("Initialize Spotify API")
 
         config_file = Path(__file__).parent.parent.parent / "config" / "spotify.yaml"
         if not config_file.exists():
@@ -111,34 +150,42 @@ class MySpotify(Api):
                 raise
 
         scopes = "playlist-read-private, user-library-read"
-        session_path = (
+        self._session_path = (
             Path(__file__).parent.parent.parent / ".session/spotify/session.json"
         )
-        session_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_handler = CacheFileHandler(cache_path=session_path)
+        self._session_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._session_path.exists():
+            logger.debug("Load cached Spotify session %s", self._session_path)
 
-        if session_path.exists():
-            logger.debug("Load cached Spotify session %s", session_path)
+        self._sp_auth = SpotifyOAuth(
+            scope=scopes,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            requests_timeout=2,
+            open_browser=False,
+            cache_handler=CacheFileHandler(cache_path=str(self._session_path)),
+        )
+        self._spotify: Spotify | None = None
+
+    async def connect(self) -> None:
+        logger.info("Authenticating to Spotify")
+
+        def _get_user_input(prompt: str) -> str:
+            return asyncio.run(_timed_input(prompt, timeout=30.0))
+
+        def _get_access_token() -> str:
+            logger.info("Get Spotify access token")
+            self._sp_auth._get_user_input = _get_user_input  # type: ignore[method-assign] # noqa: SLF001
+            return self._sp_auth.get_access_token(as_dict=False)
 
         try:
-            sp_auth = SpotifyOAuth(
-                scope=scopes,
-                client_id=client_id,
-                client_secret=client_secret,
-                redirect_uri=redirect_uri,
-                requests_timeout=2,
-                open_browser=False,
-                cache_handler=cache_handler,
-            )
-
-            access_token = sp_auth.get_access_token(as_dict=False)
-
+            access_token = await asyncio.to_thread(_get_access_token)
             self._spotify = Spotify(auth=access_token)
-
             logger.info("Successfully authenticated to Spotify")
         except Exception as e:
             logger.error("Failed to authenticate to Spotify: %s", e)
-            session_path.unlink(missing_ok=True)
+            Path(self._sp_auth.cache_handler.cache_path).unlink(missing_ok=True)
             raise
 
     def _get_tracks_from_playlist(
@@ -147,6 +194,10 @@ class MySpotify(Api):
     ) -> list[Track]:
         if playlist.id is None:
             logger.warning("playlist ID is None, cannot fetch tracks")
+            return []
+
+        if self._spotify is None:
+            logger.error("Spotify client is not initialized")
             return []
 
         logger.info("Fetching tracks from playlist: %s", playlist.name)
@@ -193,6 +244,10 @@ class MySpotify(Api):
         playlists: list[Playlist] = []
 
         logger.info("Fetching Spotify playlists")
+
+        if self._spotify is None:
+            logger.error("Spotify client is not initialized")
+            return []
 
         response = self._spotify.current_user_playlists()
 

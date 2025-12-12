@@ -173,6 +173,11 @@ class PlaylistFilter(Protocol):
 
 class Api(ABC):
     @abstractmethod
+    async def connect(self) -> None:
+        """Connect to the API."""
+        ...
+
+    @abstractmethod
     def get_playlists(self, filter: PlaylistFilter | None = None) -> list[Playlist]:
         """Get playlists from the API."""
         ...

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from collections.abc import Iterator, Sequence
@@ -142,18 +143,19 @@ def _parse_track(tidal_track: TidalTrack) -> Track | None:
 
 class MyTidal(Api):
     def __init__(self) -> None:
-        logger.info("Authenticating to Tidal API")
+        logger.info("Initial Tidal API")
 
         self._session = Session()
 
-        session_path = (
+        self._session_path = (
             Path(__file__).parent.parent.parent / ".session/tidal/session.yaml"
         )
-        session_path.parent.mkdir(parents=True, exist_ok=True)
+        self._session_path.parent.mkdir(parents=True, exist_ok=True)
+        self._authenticated = False
 
-        if session_path.exists():
-            logger.debug("Load cached Tidal session %s", session_path)
-            with session_path.open() as f:
+        if self._session_path.exists():
+            logger.debug("Load cached Tidal session %s", self._session_path)
+            with self._session_path.open() as f:
                 session_yaml = yaml.safe_load(f)
 
             try:
@@ -169,18 +171,25 @@ class MyTidal(Api):
                     logger.info(
                         "Successfully authenticated to Tidal using cached session"
                     )
+                    self._authenticated = True
                     return
 
                 logger.warning(
                     "Failed to authenticate to Tidal using cached session, "
                     "creating a new one"
                 )
-                session_path.unlink()
+                self._session_path.unlink()
             except (TypeError, KeyError) as e:
                 logger.warning(
                     "Error loading cached Tidal session: %s, creating a new one", e
                 )
-                session_path.unlink()
+                self._session_path.unlink()
+
+    async def connect(self) -> None:
+        if self._authenticated:
+            return
+
+        logger.info("Authenticating to Tidal")
 
         login, future = self._session.login_oauth()
 
@@ -190,17 +199,23 @@ class MyTidal(Api):
 
         logger.info("URL %s", url)
         try:
-            if not future.result():
+            result = await asyncio.wait_for(asyncio.wrap_future(future), timeout=30.0)
+            if not result:
                 logger.error("Failed to authenticate to Tidal")
                 raise OSError("Tidal authentication failed")
+
+            logger.info("Successfully authenticated to Tidal")
         except Exception as e:
+            # ensure the future terminates
+            login.interval = login.expires_in
+            _ = await asyncio.gather(
+                asyncio.wrap_future(future), return_exceptions=True
+            )
             logger.error("Failed to authenticate to Tidal: %s", e)
             raise
 
-        logger.info("Successfully authenticated to Tidal")
-
-        logger.debug("Saving Tidal session to %s", session_path)
-        with session_path.open("w") as f:
+        logger.debug("Saving Tidal session to %s", self._session_path)
+        with self._session_path.open("w") as f:
             yaml.dump(
                 {
                     "session_id": self._session.session_id,
