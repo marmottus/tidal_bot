@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from tidal_bot.bot.telegram import TelegramBot
+from tidal_bot.bot.telegram import TelegramBot, markdown_escape
 from tidal_bot.logger import init_logging
 from tidal_bot.spotify.spotify import MySpotify
 from tidal_bot.tidal.tidal import MyTidal
@@ -22,12 +22,14 @@ async def main() -> None:
     except TimeoutError as e:
         logger.error("Spotify connection timed out: %s", e)
         await bot.send_message(
-            message="⚠️ Spotify connection lost, please refresh token"
+            message=markdown_escape("⚠️ Spotify connection lost, please refresh token")
         )
         return
     except Exception as e:
         logger.error("Spotify connection error: %s", e)
-        await bot.send_message(message=f"⚠️ Spotify connection error occurred: {e}")
+        await bot.send_message(
+            message=markdown_escape(f"⚠️ Spotify connection error occurred: {e}")
+        )
         return
 
     tidal = MyTidal()
@@ -35,11 +37,15 @@ async def main() -> None:
         await tidal.connect()
     except TimeoutError as e:
         logger.error("Tidal connection timed out: %s", e)
-        await bot.send_message(message="⚠️ Tidal connection lost, please refresh token")
+        await bot.send_message(
+            message=markdown_escape("⚠️ Tidal connection lost, please refresh token")
+        )
         return
     except Exception as e:
         logger.error("Tidal connection error: %s", e)
-        await bot.send_message(message=f"⚠️ Tidal connection error occurred: {e}")
+        await bot.send_message(
+            message=markdown_escape(f"⚠️ Tidal connection error occurred: {e}")
+        )
         return
 
     spotify_playlists = spotify.get_playlists(filter=_filter_playlist)
@@ -69,7 +75,7 @@ async def main() -> None:
         if result.added:
             message = "\n".join(
                 [
-                    f"🎵 Playlist *{p.name}*",
+                    f"🎵 Playlist *{markdown_escape(p.name)}*",
                     "",
                     f"✅ *Added*: {len(result.added)}",
                     f"⏭️ *Skipped*: {len(result.skipped)}",
@@ -84,13 +90,15 @@ async def main() -> None:
             if result.not_found:
                 message += "\n\n*Tracks not found:*\n"
                 message += "\n".join(
-                    f" ❓ {track.full_name()}" for track in result.not_found
+                    f" ❓ {markdown_escape(track.full_name())}"
+                    for track in result.not_found
                 )
 
             if result.add_error:
                 message += "\n\n*Tracks with errors:*\n"
                 message += "\n".join(
-                    f" ❌ {track.full_name()}" for track in result.add_error
+                    f" ❌ {markdown_escape(track.full_name())}"
+                    for track in result.add_error
                 )
 
             await bot.send_message(message=message)

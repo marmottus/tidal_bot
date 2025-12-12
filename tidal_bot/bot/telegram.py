@@ -67,8 +67,6 @@ class TelegramBot:
         message: str,
         message_thread_id: int | None = None,
     ) -> None:
-        message = markdown_escape(message)
-
         lines_to_send = message.split("\n")
         while lines_to_send:
             to_send = ""
