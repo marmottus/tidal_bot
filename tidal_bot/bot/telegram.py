@@ -8,6 +8,36 @@ from telegram.error import TelegramError
 
 logger = logging.getLogger("bot")
 
+SPECIAL_CHARS = [
+    "\\",
+    "_",
+    "*",
+    "[",
+    "]",
+    "(",
+    ")",
+    "~",
+    "`",
+    ">",
+    "<",
+    "&",
+    "#",
+    "+",
+    "-",
+    "=",
+    "|",
+    "{",
+    "}",
+    ".",
+    "!",
+]
+
+
+def markdown_escape(name: str) -> str:
+    for char in SPECIAL_CHARS:
+        name = name.replace(char, f"\\{char}")
+    return name
+
 
 class TelegramBot:
     def __init__(self) -> None:
@@ -37,6 +67,8 @@ class TelegramBot:
         message: str,
         message_thread_id: int | None = None,
     ) -> None:
+        message = markdown_escape(message)
+
         lines_to_send = message.split("\n")
         while lines_to_send:
             to_send = ""

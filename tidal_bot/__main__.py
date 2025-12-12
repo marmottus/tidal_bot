@@ -25,6 +25,10 @@ async def main() -> None:
             message="⚠️ Spotify connection lost, please refresh token"
         )
         return
+    except Exception as e:
+        logger.error("Spotify connection error: %s", e)
+        await bot.send_message(message=f"⚠️ Spotify connection error occurred: {e}")
+        return
 
     tidal = MyTidal()
     try:
@@ -32,6 +36,10 @@ async def main() -> None:
     except TimeoutError as e:
         logger.error("Tidal connection timed out: %s", e)
         await bot.send_message(message="⚠️ Tidal connection lost, please refresh token")
+        return
+    except Exception as e:
+        logger.error("Tidal connection error: %s", e)
+        await bot.send_message(message=f"⚠️ Tidal connection error occurred: {e}")
         return
 
     spotify_playlists = spotify.get_playlists(filter=_filter_playlist)
@@ -61,7 +69,7 @@ async def main() -> None:
         if result.added:
             message = "\n".join(
                 [
-                    f"🎵 Playlist *{p.name_escaped()}*",
+                    f"🎵 Playlist *{p.name}*",
                     "",
                     f"✅ *Added*: {len(result.added)}",
                     f"⏭️ *Skipped*: {len(result.skipped)}",
@@ -71,20 +79,18 @@ async def main() -> None:
             )
 
             message += "\n\n*Added tracks:*\n"
-            message += "\n".join(
-                f" 🎤 {track.full_name_escaped()}" for track in result.added
-            )
+            message += "\n".join(f" 🎤 {track.full_name()}" for track in result.added)
 
             if result.not_found:
                 message += "\n\n*Tracks not found:*\n"
                 message += "\n".join(
-                    f" ❓ {track.full_name_escaped()}" for track in result.not_found
+                    f" ❓ {track.full_name()}" for track in result.not_found
                 )
 
             if result.add_error:
                 message += "\n\n*Tracks with errors:*\n"
                 message += "\n".join(
-                    f" ❌ {track.full_name_escaped()}" for track in result.add_error
+                    f" ❌ {track.full_name()}" for track in result.add_error
                 )
 
             await bot.send_message(message=message)

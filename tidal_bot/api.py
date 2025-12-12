@@ -8,36 +8,6 @@ from typing import Protocol
 
 logger = logging.getLogger("api")
 
-SPECIAL_CHARS = [
-    "\\",
-    "_",
-    "*",
-    "[",
-    "]",
-    "(",
-    ")",
-    "~",
-    "`",
-    ">",
-    "<",
-    "&",
-    "#",
-    "+",
-    "-",
-    "=",
-    "|",
-    "{",
-    "}",
-    ".",
-    "!",
-]
-
-
-def _markdown_escape(name: str) -> str:
-    for char in SPECIAL_CHARS:
-        name = name.replace(char, f"\\{char}")
-    return name
-
 
 @dataclass
 class Album:
@@ -85,9 +55,6 @@ class Track:
 
     def full_name(self) -> str:
         return f"{self.name} - {', '.join(self.artists)}"
-
-    def full_name_escaped(self) -> str:
-        return _markdown_escape(self.full_name())
 
     def __str__(self) -> str:
         mm, ss = divmod(self.duration.seconds, 60)
@@ -138,9 +105,6 @@ class Playlist:
     tracks: list[Track] = field(default_factory=list)
     uri: str | None = None
     image: bytes | None = None
-
-    def name_escaped(self) -> str:
-        return _markdown_escape(self.name)
 
     def __str__(self) -> str:
         output = f"Playlist: {self.name} - {len(self.tracks)} track(s)"
