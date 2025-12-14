@@ -15,8 +15,9 @@ def _filter_playlist(name: str) -> bool:
 
 async def main() -> None:
     bot = TelegramBot()
-
     spotify = MySpotify()
+    tidal = MyTidal()
+
     try:
         await spotify.connect()
     except TimeoutError as e:
@@ -32,7 +33,6 @@ async def main() -> None:
         )
         return
 
-    tidal = MyTidal()
     try:
         await tidal.connect()
     except TimeoutError as e:
@@ -85,7 +85,9 @@ async def main() -> None:
             )
 
             message += "\n\n*Added tracks:*\n"
-            message += "\n".join(f" 🎤 {track.full_name()}" for track in result.added)
+            message += "\n".join(
+                f" 🎤 {markdown_escape(track.full_name())}" for track in result.added
+            )
 
             if result.not_found:
                 message += "\n\n*Tracks not found:*\n"
