@@ -79,6 +79,9 @@ class Track:
         if self.isrc == other.isrc:
             return True
 
+        if self.name.lower() != other.name.lower():
+            return False
+
         duration_diff = abs(self.duration - other.duration)
         if duration_diff > timedelta(seconds=2):
             return False
@@ -133,6 +136,7 @@ class AddedTracksResult:
     skipped: list[Track] = field(default_factory=list)
     not_found: list[Track] = field(default_factory=list)
     add_error: list[Track] = field(default_factory=list)
+    tracks: list[Track] = field(default_factory=list)
 
 
 class PlaylistFilter(Protocol):

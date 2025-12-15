@@ -100,7 +100,7 @@ async def _merge_spotify_playlists(
             len(result.not_found),
         )
 
-        ordered_tracks += result.added + result.skipped
+        ordered_tracks += result.tracks
 
         if result.added:
             message = "\n".join(

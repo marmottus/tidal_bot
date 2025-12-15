@@ -9,7 +9,7 @@ from typing import Any, Protocol, TypeVar
 import yaml
 from requests.exceptions import HTTPError, RequestException
 from tidalapi.album import Album as TidalAlbum
-from tidalapi.exceptions import ObjectNotFound, TidalAPIError
+from tidalapi.exceptions import InvalidISRC, ObjectNotFound, TidalAPIError
 from tidalapi.media import Track as TidalTrack
 from tidalapi.playlist import Folder as TidalFolder
 from tidalapi.playlist import UserPlaylist
@@ -40,8 +40,11 @@ def _retry_on_error[T](func: RetryFunc[T], *args: Any, **kwargs: Any) -> T | Non
         except ObjectNotFound:
             logger.info("Object not found during API call")
             return None
+        except InvalidISRC:
+            logger.info("Invalid ISRC during API call")
+            return None
         except (HTTPError, TidalAPIError, RequestException) as e:
-            logger.warning("Error during API call: %s", e)
+            logger.warning("Error during API call %s: %s", type(e), e)
             if i == len(backoff_intervals) - 1:
                 logger.error("Max retries reached, giving up")
                 return None
@@ -137,7 +140,7 @@ def _parse_track(tidal_track: TidalTrack) -> Track | None:
     return Track(
         name=tidal_track.name,
         artists=artists,
-        isrc=tidal_track.isrc,
+        isrc=tidal_track.isrc.upper(),
         id=tidal_track.id,
         duration=timedelta(seconds=tidal_track.duration),
         album=album,
@@ -460,7 +463,9 @@ class MyTidal(Api):
                     existing_track.full_name(),
                     dest_playlist.name,
                 )
+
                 result.skipped.append(existing_track)
+                result.tracks.append(existing_track)
                 continue
             except StopIteration:
                 pass
@@ -493,13 +498,12 @@ class MyTidal(Api):
                 result.add_error.append(found_tidal_track)
             else:
                 result.added.append(found_tidal_track)
+                result.tracks.append(found_tidal_track)
                 dest_playlist.tracks.append(found_tidal_track)
 
         return result
 
-    def search_track(self, track: Track) -> Track | None:
-        logger.info("Searching for track: %s", track.full_name())
-
+    def _search_track_by_isrc(self, track: Track) -> Track | None:
         logger.debug("Search track by ISRC: %s", track.isrc)
         tidal_tracks = _retry_on_error(self._session.get_tracks_by_isrc, track.isrc)
         if tidal_tracks is not None:
@@ -511,13 +515,17 @@ class MyTidal(Api):
                 if found_track == track:
                     logger.info("Found track: %s", found_track)
                     return found_track
+        else:
+            logger.debug("No track found by ISRC: %s", track.isrc)
 
+        return None
+
+    def _search_track_by_name(self, track: Track) -> Track | None:
         query = f"{track.name} " + " ".join(track.artists)
         logger.debug("Search track by query: %s", query)
-
         result = _retry_on_error(self._session.search, query, models=[TidalTrack])
         if result is None:
-            logger.error("Error searching for track %s", track.full_name())
+            logger.debug("No result for search query: %s", query)
             return None
 
         for t in result["tracks"]:
@@ -529,7 +537,20 @@ class MyTidal(Api):
                 logger.info("Found track: %s", found_track)
                 return found_track
 
-        logger.warning("No matching track found for: %s", track.full_name())
+        return None
+
+    def search_track(self, track: Track) -> Track | None:
+        logger.info("Searching for track: %s", track.full_name())
+
+        found_track = self._search_track_by_isrc(track)
+        if found_track is not None:
+            return found_track
+
+        found_track = self._search_track_by_name(track)
+        if found_track is not None:
+            return found_track
+
+        logger.warning("Track not found: %s", track.full_name())
 
         return None
 

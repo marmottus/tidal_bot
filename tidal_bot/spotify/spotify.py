@@ -119,7 +119,7 @@ def _parse_track(spotify_track: TrackObject) -> Track | None:
     return Track(
         name=spotify_track.name,
         artists=artists,
-        isrc=spotify_track.external_ids.isrc,
+        isrc=spotify_track.external_ids.isrc.upper(),
         id=spotify_track.id if spotify_track.id is not None else -1,
         duration=timedelta(milliseconds=spotify_track.duration_ms),
         album=album,
@@ -248,8 +248,7 @@ class MySpotify(Api):
 
         logger.debug("fetched total %d tracks", len(tracks))
 
-        deduplicated_tracks: list[Track] = []
-        for track in tracks:
+        for track in list(tracks):
             found_tracks = [t for t in tracks if t == track]
             if len(found_tracks) > 1:
                 logger.debug(
@@ -260,15 +259,13 @@ class MySpotify(Api):
                 for t in found_tracks[1:]:
                     tracks.remove(t)
 
-            deduplicated_tracks.append(track)
-
         logger.info(
             "Total %d unique tracks in playlist %s",
-            len(deduplicated_tracks),
+            len(tracks),
             playlist.name,
         )
 
-        return deduplicated_tracks
+        return tracks
 
     def get_playlists(self, filter: PlaylistFilter | None = None) -> list[Playlist]:
         playlists: list[Playlist] = []
