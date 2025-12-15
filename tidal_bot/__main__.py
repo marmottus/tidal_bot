@@ -1,6 +1,11 @@
 import asyncio
 import logging
+from pathlib import Path
 
+import yaml
+from pydantic import BaseModel, ValidationError
+
+from tidal_bot.api import Track
 from tidal_bot.bot.telegram import TelegramBot, markdown_escape
 from tidal_bot.logger import init_logging
 from tidal_bot.spotify.spotify import MySpotify
@@ -9,14 +14,129 @@ from tidal_bot.tidal.tidal import MyTidal
 logger = logging.getLogger("main")
 
 
-def _filter_playlist(name: str) -> bool:
-    return name.startswith("EUROVISION")
+class SyncPlaylist(BaseModel):
+    name: str
+    playlists: list[str]
+
+
+class PlaylistYaml(BaseModel):
+    sync_playlists: list[SyncPlaylist]
+
+
+def _parse_playlist_to_sync() -> PlaylistYaml | None:
+    config_folder = Path(__file__).parent.parent / "config"
+    playlists_yaml = config_folder / "playlists.yaml"
+
+    if playlists_yaml.exists():
+        logger.info("Loading playlists to sync from %s", playlists_yaml)
+        with playlists_yaml.open() as f:
+            yaml_data = yaml.safe_load(f)
+            try:
+                config = PlaylistYaml.model_validate(yaml_data)
+                return config
+            except ValidationError as e:
+                logger.error("Failed to parse playlists.yaml: %s", e)
+                return None
+
+    return None
+
+
+async def _merge_spotify_playlists(
+    spotify: MySpotify,
+    tidal: MyTidal,
+    bot: TelegramBot,
+    playlist_name: str,
+    playlists: list[str],
+) -> None:
+    logger.info(
+        "Syncing Spotify playlists %s into Tidal playlist '%s'",
+        playlists,
+        playlist_name,
+    )
+
+    found_playlists = spotify.get_playlists(filter=lambda name: name in playlists)
+
+    tidal_playlist = tidal.create_playlist(
+        playlist_name=playlist_name, parent_folder_name="Eurovision", public=True
+    )
+    if tidal_playlist is None:
+        logger.error("Failed to create or get Tidal playlist '%s'", playlist_name)
+        await bot.send_message(
+            message=f"⚠️ Failed to create or get Tidal playlist '{markdown_escape(playlist_name)}'"
+        )
+        return
+
+    tracks: list[Track] = []
+
+    for spotify_playlist in found_playlists:
+        result = tidal.merge_playlists(
+            from_playlist=spotify_playlist,
+            dest_playlist=tidal_playlist,
+        )
+        if result is None:
+            logger.error("Failed to add tracks to playlist '%s'", tidal_playlist.name)
+            await bot.send_message(
+                message=f"⚠️ Failed to add tracks to playlist '{markdown_escape(tidal_playlist.name)}'"
+            )
+            continue
+
+        logger.info(
+            "Playlist %s updated from %s: Added %d, Skipped %d, Not Found %d",
+            spotify_playlist.name,
+            tidal_playlist.name,
+            len(result.added),
+            len(result.skipped),
+            len(result.not_found),
+        )
+
+        if result.added:
+            message = "\n".join(
+                [
+                    f"🎵 Playlist *{markdown_escape(tidal_playlist.name)}* "
+                    f"synced from **{markdown_escape(spotify_playlist.name)}**",
+                    "",
+                    f"✅ *Added*: {len(result.added)}",
+                    f"⏭️ *Skipped*: {len(result.skipped)}",
+                    f"❓ *Not Found*: {len(result.not_found)}",
+                    f"❌ *Error*: {len(result.add_error)}",
+                ]
+            )
+
+            message += "\n\n*Added tracks:*\n"
+            message += "\n".join(
+                f" 🎤 {markdown_escape(track.full_name())}" for track in result.added
+            )
+
+            if result.not_found:
+                message += "\n\n*Tracks not found:*\n"
+                message += "\n".join(
+                    f" ❓ {markdown_escape(track.full_name())}"
+                    for track in result.not_found
+                )
+
+            if result.add_error:
+                message += "\n\n*Tracks with errors:*\n"
+                message += "\n".join(
+                    f" ❌ {markdown_escape(track.full_name())}"
+                    for track in result.add_error
+                )
+
+            await bot.send_message(message=message)
+
+        tracks += spotify_playlist.tracks
+
+    tidal.reorganize_playlist(tidal_playlist, *tracks)
 
 
 async def main() -> None:
+    config = _parse_playlist_to_sync()
     bot = TelegramBot()
     spotify = MySpotify()
     tidal = MyTidal()
+
+    if config is None:
+        logger.info("No playlists to sync found in configuration")
+        return
 
     try:
         await spotify.connect()
@@ -48,62 +168,14 @@ async def main() -> None:
         )
         return
 
-    spotify_playlists = spotify.get_playlists(filter=_filter_playlist)
-
-    for p in spotify_playlists:
-        description = (
-            f"Playlist synced from Spotify {p.uri}" if p.uri is not None else None
+    for playlist in config.sync_playlists:
+        await _merge_spotify_playlists(
+            spotify=spotify,
+            tidal=tidal,
+            bot=bot,
+            playlist_name=playlist.name,
+            playlists=playlist.playlists,
         )
-
-        result = tidal.merge_playlist(
-            playlist=p,
-            playlist_description=description,
-            parent_folder_name="Eurovision",
-        )
-        if result is None:
-            logger.error("Failed to add tracks to playlist '%s'", p.name)
-            continue
-
-        logger.info(
-            "Playlist '%s': Added %d, Skipped %d, Not Found %d",
-            p.name,
-            len(result.added),
-            len(result.skipped),
-            len(result.not_found),
-        )
-
-        if result.added:
-            message = "\n".join(
-                [
-                    f"🎵 Playlist *{markdown_escape(p.name)}*",
-                    "",
-                    f"✅ *Added*: {len(result.added)}",
-                    f"⏭️ *Skipped*: {len(result.skipped)}",
-                    f"❓ *Not Found*: {len(result.not_found)}",
-                    f"❌ *Error*: {len(result.add_error)}",
-                ]
-            )
-
-            message += "\n\n*Added tracks:*\n"
-            message += "\n".join(
-                f" 🎤 {markdown_escape(track.full_name())}" for track in result.added
-            )
-
-            if result.not_found:
-                message += "\n\n*Tracks not found:*\n"
-                message += "\n".join(
-                    f" ❓ {markdown_escape(track.full_name())}"
-                    for track in result.not_found
-                )
-
-            if result.add_error:
-                message += "\n\n*Tracks with errors:*\n"
-                message += "\n".join(
-                    f" ❌ {markdown_escape(track.full_name())}"
-                    for track in result.add_error
-                )
-
-            await bot.send_message(message=message)
 
 
 if __name__ == "__main__":

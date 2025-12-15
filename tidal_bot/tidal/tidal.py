@@ -2,14 +2,14 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterator, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 import yaml
 from requests.exceptions import RequestException
 from tidalapi.album import Album as TidalAlbum
-from tidalapi.exceptions import TidalAPIError
+from tidalapi.exceptions import ObjectNotFound, TidalAPIError
 from tidalapi.media import Track as TidalTrack
 from tidalapi.playlist import Folder as TidalFolder
 from tidalapi.playlist import UserPlaylist
@@ -37,6 +37,9 @@ def _retry_on_error[T](func: RetryFunc[T], *args: Any, **kwargs: Any) -> T | Non
     for i, backoff in enumerate(backoff_intervals):
         try:
             return func(*args, **kwargs)
+        except ObjectNotFound:
+            logger.info("Object not found during API call")
+            return None
         except (TidalAPIError, RequestException) as e:
             logger.warning("Error during API call: %s", e)
             if i == len(backoff_intervals) - 1:
@@ -226,23 +229,20 @@ class MyTidal(Api):
                 f,
             )
 
-    def merge_playlist(
+    def create_playlist(
         self,
-        playlist: Playlist,
+        playlist_name: str,
         playlist_description: str | None = None,
         parent_folder_name: str | None = None,
-    ) -> AddedTracksResult | None:
-        logger.info("--------------------------------")
-        logger.info("Adding tracks to Tidal playlist: %s", playlist.name)
-        logger.info("--------------------------------")
+        public: bool = False,
+    ) -> Playlist | None:
+        logger.info("Creating Tidal playlist: %s", playlist_name)
 
         user = self._session.user
 
         if not isinstance(user, LoggedInUser):
             logger.error("User is not logged in")
             return None
-
-        result = AddedTracksResult()
 
         if parent_folder_name is not None:
             folders = _retry_on_error(user.favorites.playlist_folders)
@@ -292,66 +292,171 @@ class MyTidal(Api):
                     tidal_folder.items,
                     message=f"Fetching playlists from folder {tidal_folder.name}",
                 )
-                if isinstance(p, UserPlaylist) and p.name == playlist.name
+                if isinstance(p, UserPlaylist) and p.name == playlist_name
             )
+            logger.info("Playlist %s already exists", playlist_name)
         except StopIteration:
-            logger.info("Playlist %s not found, creating it", playlist.name)
+            logger.info("Playlist %s not found, creating it", playlist_name)
 
         existing_tracks: list[Track] = []
 
         if tidal_playlist is None:
             tidal_playlist = _retry_on_error(
                 user.create_playlist,
-                playlist.name,
-                f'Playlist "{playlist.name}"',
+                playlist_name,
+                playlist_name,
                 parent_id=parent_folder_id,
             )
             if tidal_playlist is None:
-                logger.error("Error creating playlist %s", playlist.name)
+                logger.error("Error creating playlist %s", playlist_name)
                 return None
-        else:
-            logger.info("Fetching tracks from playlist: %s", playlist.name)
-            for tidal_track in _fetch_with_limit(
-                tidal_playlist.tracks,
-                message=f"Fetching tracks from playlist {playlist.name}",
-            ):
-                track = _parse_track(tidal_track)
-                if track is not None:
-                    existing_tracks.append(track)
+
+        logger.info("Fetching tracks from playlist: %s", playlist_name)
+        for tidal_track in _fetch_with_limit(
+            tidal_playlist.tracks,
+            message=f"Fetching tracks from playlist {playlist_name}",
+        ):
+            track = _parse_track(tidal_track)
+            if track is not None:
+                existing_tracks.append(track)
+
+        logger.info(
+            "Playlist %s has %d existing tracks", playlist_name, len(existing_tracks)
+        )
+
+        if public and not tidal_playlist.public:
+            logger.info("Setting playlist %s to public", playlist_name)
+            res = _retry_on_error(tidal_playlist.set_playlist_public)
+            if res is None or not res:
+                logger.error("Error setting playlist %s to public", playlist_name)
+                return None
+        elif not public and tidal_playlist.public:
+            logger.info("Setting playlist %s to private", playlist_name)
+            res = _retry_on_error(tidal_playlist.set_playlist_private)
+            if res is None or not res:
+                logger.error("Error setting playlist %s to private", playlist_name)
+                return None
 
         if (
             playlist_description is not None
             and playlist_description != tidal_playlist.description
         ):
-            logger.info("Updating playlist description for %s", playlist.name)
+            logger.info("Updating playlist description for %s", playlist_name)
             res = _retry_on_error(tidal_playlist.edit, description=playlist_description)
             if res is None or not res:
                 logger.error(
-                    "Error updating playlist description for %s", playlist.name
+                    "Error updating playlist description for %s", playlist_name
                 )
                 return None
 
-        if not tidal_playlist.public:
-            logger.info("Setting playlist %s to public", playlist.name)
-            res = _retry_on_error(tidal_playlist.set_playlist_public)
-            if res is None or not res:
-                logger.error("Error setting playlist %s to public", playlist.name)
-                return None
+        return Playlist(
+            name=playlist_name, tracks=existing_tracks, api_playlist=tidal_playlist
+        )
 
-        for i, track in enumerate(playlist.tracks):
+    def reorganize_playlist(self, playlist: Playlist, *tracks: Track) -> bool:
+        logger.info("Reorganizing Tidal playlist: %s", playlist.name)
+
+        if not isinstance(playlist.api_playlist, UserPlaylist):
+            logger.error("Playlist is not a Tidal UserPlaylist")
+            return False
+
+        is_correct_order = True
+        found_tracks: list[Track] = []
+        track_index = 0
+        for track in tracks:
+            try:
+                found_track_index, found_track = next(
+                    (i, t) for i, t in enumerate(playlist.tracks) if t == track
+                )
+                found_tracks.append(found_track)
+
+                if found_track_index != track_index:
+                    logger.debug(
+                        "Track %s is at position %d, expected position %d",
+                        track.full_name(),
+                        found_track_index,
+                        track_index,
+                    )
+                    is_correct_order = False
+            except StopIteration:
+                continue
+
+            track_index += 1
+
+        if is_correct_order:
+            logger.info("Playlist %s is already in correct order", playlist.name)
+            return True
+
+        logger.info("Clearing playlist %s", playlist.name)
+        result = _retry_on_error(
+            playlist.api_playlist.clear, chunk_size=len(playlist.tracks)
+        )
+        if result is None or not result:
+            logger.error("Error clearing playlist %s", playlist.name)
+            return False
+
+        playlist.tracks.clear()
+
+        logger.info("Adding tracks to playlist %s", playlist.name)
+        for track in found_tracks:
+            logger.info(
+                "✅ Adding track %s to playlist %s",
+                track.full_name(),
+                playlist.name,
+            )
+            added = _retry_on_error(playlist.api_playlist.add_by_isrc, track.isrc)
+            if added is None or not added:
+                logger.error(
+                    "❌ Error adding track %s to playlist %s",
+                    track.full_name(),
+                    playlist.name,
+                )
+            else:
+                playlist.tracks.append(track)
+
+        return True
+
+    def merge_playlists(
+        self,
+        from_playlist: Playlist,
+        dest_playlist: Playlist,
+    ) -> AddedTracksResult | None:
+        logger.info("--------------------------------")
+        logger.info(
+            "Adding tracks from playlist %s to Tidal playlist: %s",
+            from_playlist.name,
+            dest_playlist.name,
+        )
+        logger.info("--------------------------------")
+
+        if not isinstance(dest_playlist.api_playlist, UserPlaylist):
+            logger.error("Destination playlist is not a Tidal UserPlaylist")
+            return None
+
+        user = self._session.user
+
+        if not isinstance(user, LoggedInUser):
+            logger.error("User is not logged in")
+            return None
+
+        result = AddedTracksResult()
+
+        for i, track in enumerate(
+            sorted(from_playlist.tracks, key=lambda t: t.added_at or datetime.now())
+        ):
             logger.debug(
                 "⚙️  Processing track %d/%d: %s",
                 i + 1,
-                len(playlist.tracks),
+                len(from_playlist.tracks),
                 track.full_name(),
             )
 
             try:
-                existing_track = next(t for t in existing_tracks if t == track)
+                existing_track = next(t for t in dest_playlist.tracks if t == track)
                 logger.info(
                     "⏭️  Track %s already exists in playlist %s, skipping",
                     existing_track.full_name(),
-                    playlist.name,
+                    dest_playlist.name,
                 )
                 result.skipped.append(existing_track)
                 continue
@@ -363,7 +468,7 @@ class MyTidal(Api):
                 logger.warning(
                     "❓ Cannot add track %s to playlist %s: track not found",
                     track.full_name(),
-                    playlist.name,
+                    dest_playlist.name,
                 )
                 result.not_found.append(track)
                 continue
@@ -371,27 +476,42 @@ class MyTidal(Api):
             logger.info(
                 "✅ Adding track %s to playlist %s",
                 found_tidal_track.full_name(),
-                playlist.name,
+                dest_playlist.name,
             )
 
-            added = _retry_on_error(tidal_playlist.add_by_isrc, found_tidal_track.isrc)
+            added = _retry_on_error(
+                dest_playlist.api_playlist.add_by_isrc, found_tidal_track.isrc
+            )
             if added is None or not added:
                 logger.error(
                     "❌ Error adding track %s to playlist %s",
                     found_tidal_track.full_name(),
-                    playlist.name,
+                    dest_playlist.name,
                 )
                 result.add_error.append(found_tidal_track)
             else:
                 result.added.append(found_tidal_track)
+                dest_playlist.tracks.append(found_tidal_track)
 
         return result
 
     def search_track(self, track: Track) -> Track | None:
         logger.info("Searching for track: %s", track.full_name())
 
+        logger.debug("Search track by ISRC: %s", track.isrc)
+        tidal_tracks = _retry_on_error(self._session.get_tracks_by_isrc, track.isrc)
+        if tidal_tracks is not None:
+            logger.debug("Found %d track(s) by ISRC", len(tidal_tracks))
+            for t in tidal_tracks:
+                found_track = _parse_track(t)
+                if found_track is None:
+                    continue
+                if found_track == track:
+                    logger.info("Found track: %s", found_track)
+                    return found_track
+
         query = f"{track.name} " + " ".join(track.artists)
-        logger.debug("Search query: %s", query)
+        logger.debug("Search track by query: %s", query)
 
         result = _retry_on_error(self._session.search, query, models=[TidalTrack])
         if result is None:
@@ -407,9 +527,7 @@ class MyTidal(Api):
                 logger.info("Found track: %s", found_track)
                 return found_track
 
-        logger.warning(
-            "No matching track found for: %s - %s", track.name, ", ".join(track.artists)
-        )
+        logger.warning("No matching track found for: %s", track.full_name())
 
         return None
 
@@ -441,7 +559,7 @@ class MyTidal(Api):
 
             logger.info("Fetching tracks from playlist: %s", tidal_playlist.name)
 
-            playlist = Playlist(name=tidal_playlist.name)
+            playlist = Playlist(name=tidal_playlist.name, api_playlist=tidal_playlist)
             for tidal_track in _fetch_with_limit(
                 tidal_playlist.tracks,
                 message=f"Fetching tracks from playlist {tidal_playlist.name}",

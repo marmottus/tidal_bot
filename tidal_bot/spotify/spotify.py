@@ -293,7 +293,11 @@ class MySpotify(Api):
 
             playlists.append(
                 Playlist(
-                    name=spotify_playlist.name, tracks=tracks, uri=uri, image=image
+                    name=spotify_playlist.name,
+                    tracks=tracks,
+                    uri=uri,
+                    image=image,
+                    api_playlist=spotify_playlist,
                 )
             )
         return playlists
@@ -301,10 +305,18 @@ class MySpotify(Api):
     def search_track(self, track: Track) -> Track | None:
         return None
 
-    def merge_playlist(
+    def merge_playlists(
         self,
-        playlist: Playlist,
+        from_playlist: Playlist,
+        dest_playlist: Playlist,
+    ) -> AddedTracksResult | None:
+        return None
+
+    def create_playlist(
+        self,
+        playlist_name: str,
         playlist_description: str | None = None,
         parent_folder_name: str | None = None,
-    ) -> AddedTracksResult | None:
+        public: bool = False,
+    ) -> Playlist | None:
         return None

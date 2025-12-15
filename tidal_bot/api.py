@@ -3,8 +3,12 @@ import re
 import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Protocol
+
+from tidalapi.playlist import UserPlaylist
+
+from tidal_bot.spotify.model import SimplifiedPlaylistObject
 
 logger = logging.getLogger("api")
 
@@ -52,6 +56,7 @@ class Track:
     duration: timedelta
     artists: set[str] = field(default_factory=set)
     album: Album | None = None
+    added_at: datetime | None = None
 
     def full_name(self) -> str:
         return f"{self.name} - {', '.join(self.artists)}"
@@ -102,6 +107,7 @@ class Track:
 @dataclass
 class Playlist:
     name: str
+    api_playlist: UserPlaylist | SimplifiedPlaylistObject
     tracks: list[Track] = field(default_factory=list)
     uri: str | None = None
     image: bytes | None = None
@@ -152,20 +158,39 @@ class Api(ABC):
         ...
 
     @abstractmethod
-    def merge_playlist(
+    def merge_playlists(
         self,
-        playlist: Playlist,
-        playlist_description: str | None = None,
-        parent_folder_name: str | None = None,
+        from_playlist: Playlist,
+        dest_playlist: Playlist,
     ) -> AddedTracksResult | None:
         """Merge a playlist into the API, creating it if it does not exist.
 
         Parameters:
-            playlist: Playlist to merge.
-            playlist_description: Optional description for the playlist.
-            parent_folder_name: Optional name of the parent folder to create the playlist in.
+            from_playlist (Playlist): The source playlist to merge from.
+            dest_playlist (Playlist): The destination playlist to merge into.
 
         Returns an AddedTracksResult containing added, skipped, and not found tracks.
+
+        """
+        ...
+
+    @abstractmethod
+    def create_playlist(
+        self,
+        playlist_name: str,
+        playlist_description: str | None = None,
+        parent_folder_name: str | None = None,
+        public: bool = False,
+    ) -> Playlist | None:
+        """Create a new playlist in the API.
+
+        Parameters:
+            playlist_name (str): The name of the playlist to create.
+            playlist_description (str | None): The description of the playlist.
+            parent_folder_name (str | None): The parent folder name for the playlist.
+            public (bool): Whether the playlist is public or private.
+
+        Returns the created Playlist, or None if creation failed.
 
         """
         ...
