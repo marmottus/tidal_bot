@@ -10,6 +10,7 @@ import yaml
 from pydantic import ValidationError
 from spotipy.cache_handler import CacheFileHandler
 from spotipy.client import Spotify
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
 from tidal_bot.api import AddedTracksResult, Album, Api, Playlist, PlaylistFilter, Track
@@ -209,9 +210,18 @@ class MySpotify(Api):
 
         while True:
             logger.debug("fetching %u tracks at offset %d", limit, offset)
-            response = self._spotify.playlist_items(
-                playlist_id=playlist.id, offset=offset, limit=limit
-            )
+            try:
+                response = self._spotify.playlist_items(
+                    playlist_id=playlist.id, offset=offset, limit=limit
+                )
+            except SpotifyException as e:
+                logger.error(
+                    "Failed to fetch tracks from playlist %s: %s",
+                    playlist.name,
+                    e,
+                )
+                return []
+
             try:
                 spotify_tracks = PagingPlaylistTrackObject.model_validate(response)
             except ValidationError as e:
@@ -249,7 +259,11 @@ class MySpotify(Api):
             logger.error("Spotify client is not initialized")
             return []
 
-        response = self._spotify.current_user_playlists()
+        try:
+            response = self._spotify.current_user_playlists()
+        except SpotifyException as e:
+            logger.error("Failed to fetch Spotify playlists: %s", e)
+            return []
 
         try:
             spotify_playlists = PagingPlaylistObject.model_validate(response)
@@ -286,6 +300,13 @@ class MySpotify(Api):
                         )
 
             tracks = self._get_tracks_from_playlist(spotify_playlist)
+            if not tracks:
+                logger.info(
+                    "No tracks found in Spotify playlist %s",
+                    spotify_playlist.name,
+                )
+                continue
+
             if spotify_playlist.external_urls is not None:
                 uri = spotify_playlist.external_urls.spotify
             else:
