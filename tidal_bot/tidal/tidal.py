@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 import yaml
-from requests.exceptions import RequestException
+from requests.exceptions import HTTPError, RequestException
 from tidalapi.album import Album as TidalAlbum
 from tidalapi.exceptions import ObjectNotFound, TidalAPIError
 from tidalapi.media import Track as TidalTrack
@@ -40,7 +40,7 @@ def _retry_on_error[T](func: RetryFunc[T], *args: Any, **kwargs: Any) -> T | Non
         except ObjectNotFound:
             logger.info("Object not found during API call")
             return None
-        except (TidalAPIError, RequestException) as e:
+        except (HTTPError, TidalAPIError, RequestException) as e:
             logger.warning("Error during API call: %s", e)
             if i == len(backoff_intervals) - 1:
                 logger.error("Max retries reached, giving up")
