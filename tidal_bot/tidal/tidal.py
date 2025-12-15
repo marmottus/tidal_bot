@@ -353,12 +353,12 @@ class MyTidal(Api):
             name=playlist_name, tracks=existing_tracks, api_playlist=tidal_playlist
         )
 
-    def reorganize_playlist(self, playlist: Playlist, *tracks: Track) -> bool:
+    def reorganize_playlist(self, playlist: Playlist, *tracks: Track) -> bool | None:
         logger.info("Reorganizing Tidal playlist: %s", playlist.name)
 
         if not isinstance(playlist.api_playlist, UserPlaylist):
             logger.error("Playlist is not a Tidal UserPlaylist")
-            return False
+            return None
 
         is_correct_order = True
         found_tracks: list[Track] = []
@@ -385,7 +385,7 @@ class MyTidal(Api):
 
         if is_correct_order:
             logger.info("Playlist %s is already in correct order", playlist.name)
-            return True
+            return False
 
         logger.info("Clearing playlist %s", playlist.name)
         result = _retry_on_error(
@@ -393,7 +393,7 @@ class MyTidal(Api):
         )
         if result is None or not result:
             logger.error("Error clearing playlist %s", playlist.name)
-            return False
+            return None
 
         playlist.tracks.clear()
 

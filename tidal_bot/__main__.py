@@ -49,7 +49,7 @@ async def _merge_spotify_playlists(
     playlists: list[str],
 ) -> None:
     logger.info(
-        "Syncing Spotify playlists %s into Tidal playlist '%s'",
+        "Syncing Spotify playlists %s into Tidal playlist %s",
         playlists,
         playlist_name,
     )
@@ -60,23 +60,31 @@ async def _merge_spotify_playlists(
         playlist_name=playlist_name, parent_folder_name="Eurovision", public=True
     )
     if tidal_playlist is None:
-        logger.error("Failed to create or get Tidal playlist '%s'", playlist_name)
+        logger.error("Failed to create or get Tidal playlist %s", playlist_name)
         await bot.send_message(
-            message=f"⚠️ Failed to create or get Tidal playlist '{markdown_escape(playlist_name)}'"
+            message=f"⚠️ Failed to create or get Tidal playlist *{markdown_escape(playlist_name)}*"
         )
         return
 
-    tracks: list[Track] = []
+    ordered_tracks: list[Track] = []
+    for playlist in playlists:
+        try:
+            spotify_playlist = next(p for p in found_playlists if p.name == playlist)
+        except StopIteration:
+            logger.warning("Spotify playlist %s not found", playlist)
+            await bot.send_message(
+                message=f"⚠️ Spotify playlist *{markdown_escape(playlist)}* not found"
+            )
+            continue
 
-    for spotify_playlist in found_playlists:
         result = tidal.merge_playlists(
             from_playlist=spotify_playlist,
             dest_playlist=tidal_playlist,
         )
         if result is None:
-            logger.error("Failed to add tracks to playlist '%s'", tidal_playlist.name)
+            logger.error("Failed to add tracks to playlist %s", tidal_playlist.name)
             await bot.send_message(
-                message=f"⚠️ Failed to add tracks to playlist '{markdown_escape(tidal_playlist.name)}'"
+                message=f"⚠️ Failed to add tracks to playlist *{markdown_escape(tidal_playlist.name)}*"
             )
             continue
 
@@ -89,11 +97,13 @@ async def _merge_spotify_playlists(
             len(result.not_found),
         )
 
+        ordered_tracks += result.added + result.skipped
+
         if result.added:
             message = "\n".join(
                 [
-                    f"🎵 Playlist *{markdown_escape(tidal_playlist.name)}* "
-                    f"synced from **{markdown_escape(spotify_playlist.name)}**",
+                    f"🎵 Playlist *{markdown_escape(tidal_playlist.name)}* synced",
+                    f"from *{markdown_escape(spotify_playlist.name)}*",
                     "",
                     f"✅ *Added*: {len(result.added)}",
                     f"⏭️ *Skipped*: {len(result.skipped)}",
@@ -123,9 +133,18 @@ async def _merge_spotify_playlists(
 
             await bot.send_message(message=message)
 
-        tracks += spotify_playlist.tracks
+    result = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
+    if result is None:
+        logger.error("Failed to reorganize playlist %s", tidal_playlist.name)
+        await bot.send_message(
+            message=f"⚠️ Failed to reorganize playlist *{markdown_escape(tidal_playlist.name)}*"
+        )
+        return
 
-    tidal.reorganize_playlist(tidal_playlist, *tracks)
+    if result:
+        await bot.send_message(
+            message=f"✅ Playlist *{markdown_escape(tidal_playlist.name)}* has been reorganized"
+        )
 
 
 async def main() -> None:
