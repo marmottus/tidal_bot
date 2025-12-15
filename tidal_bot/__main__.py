@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from tidal_bot.api import Track
+from tidal_bot.api import Playlist, Track
 from tidal_bot.bot.telegram import TelegramBot, markdown_escape
 from tidal_bot.logger import init_logging
 from tidal_bot.spotify.spotify import MySpotify
@@ -56,6 +56,18 @@ async def _merge_spotify_playlists(
 
     found_playlists = spotify.get_playlists(filter=lambda name: name in playlists)
 
+    spotify_playlists: list[Playlist] = []
+    for playlist in playlists:
+        try:
+            spotify_playlist = next(p for p in found_playlists if p.name == playlist)
+            spotify_playlists.append(spotify_playlist)
+        except StopIteration:
+            logger.warning("Spotify playlist %s not found", playlist)
+            await bot.send_message(
+                message=f"⚠️ Spotify playlist *{markdown_escape(playlist)}* not found"
+            )
+            return
+
     tidal_playlist = tidal.create_playlist(
         playlist_name=playlist_name, parent_folder_name="Eurovision", public=True
     )
@@ -67,16 +79,7 @@ async def _merge_spotify_playlists(
         return
 
     ordered_tracks: list[Track] = []
-    for playlist in playlists:
-        try:
-            spotify_playlist = next(p for p in found_playlists if p.name == playlist)
-        except StopIteration:
-            logger.warning("Spotify playlist %s not found", playlist)
-            await bot.send_message(
-                message=f"⚠️ Spotify playlist *{markdown_escape(playlist)}* not found"
-            )
-            continue
-
+    for spotify_playlist in spotify_playlists:
         result = tidal.merge_playlists(
             from_playlist=spotify_playlist,
             dest_playlist=tidal_playlist,
@@ -188,6 +191,12 @@ async def main() -> None:
         return
 
     for playlist in config.sync_playlists:
+        if not playlist.playlists:
+            logger.warning(
+                "No source playlists defined for sync playlist %s", playlist.name
+            )
+            continue
+
         await _merge_spotify_playlists(
             spotify=spotify,
             tidal=tidal,
