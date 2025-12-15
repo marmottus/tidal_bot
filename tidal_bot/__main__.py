@@ -133,15 +133,15 @@ async def _merge_spotify_playlists(
 
             await bot.send_message(message=message)
 
-    result = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
-    if result is None:
+    has_reoganized = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
+    if has_reoganized is None:
         logger.error("Failed to reorganize playlist %s", tidal_playlist.name)
         await bot.send_message(
             message=f"⚠️ Failed to reorganize playlist *{markdown_escape(tidal_playlist.name)}*"
         )
         return
 
-    if result:
+    if has_reoganized:
         await bot.send_message(
             message=f"✅ Playlist *{markdown_escape(tidal_playlist.name)}* has been reorganized"
         )
