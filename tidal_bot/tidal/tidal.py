@@ -398,9 +398,11 @@ class MyTidal(Api):
         playlist.tracks.clear()
 
         logger.info("Adding tracks to playlist %s", playlist.name)
-        for track in found_tracks:
+        for i, track in enumerate(found_tracks):
             logger.info(
-                "✅ Adding track %s to playlist %s",
+                "✅ [%u/%u] Adding track %s to playlist %s",
+                i + 1,
+                len(found_tracks),
                 track.full_name(),
                 playlist.name,
             )

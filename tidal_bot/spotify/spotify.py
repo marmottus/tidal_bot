@@ -248,7 +248,27 @@ class MySpotify(Api):
 
         logger.debug("fetched total %d tracks", len(tracks))
 
-        return tracks
+        deduplicated_tracks: list[Track] = []
+        for track in tracks:
+            found_tracks = [t for t in tracks if t == track]
+            if len(found_tracks) > 1:
+                logger.debug(
+                    "Found %d duplicates for track %s, keeping first occurrence",
+                    len(found_tracks),
+                    track,
+                )
+                for t in found_tracks[1:]:
+                    tracks.remove(t)
+
+            deduplicated_tracks.append(track)
+
+        logger.info(
+            "Total %d unique tracks in playlist %s",
+            len(deduplicated_tracks),
+            playlist.name,
+        )
+
+        return deduplicated_tracks
 
     def get_playlists(self, filter: PlaylistFilter | None = None) -> list[Playlist]:
         playlists: list[Playlist] = []
