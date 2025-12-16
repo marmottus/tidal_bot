@@ -54,19 +54,39 @@ async def _merge_spotify_playlists(
         playlist_name,
     )
 
-    found_playlists = spotify.get_playlists(filter=lambda name: name in playlists)
-
+    max_tries = 3
     spotify_playlists: list[Playlist] = []
-    for playlist in playlists:
-        try:
-            spotify_playlist = next(p for p in found_playlists if p.name == playlist)
-            spotify_playlists.append(spotify_playlist)
-        except StopIteration:
-            logger.warning("Spotify playlist %s not found", playlist)
+    for i in range(max_tries):
+        found_playlists = spotify.get_playlists(filter=lambda name: name in playlists)
+        spotify_playlists.clear()
+
+        for spotify_playlist_name in playlists:
+            try:
+                spotify_playlist = next(
+                    p for p in found_playlists if p.name == spotify_playlist_name
+                )
+                spotify_playlists.append(spotify_playlist)
+            except StopIteration:
+                logger.warning("Spotify playlist %s not found", spotify_playlist_name)
+                break
+
+        if len(spotify_playlists) == len(playlists):
+            break
+
+        logger.warning(
+            "Not all Spotify playlists found for syncing into %s (found %d of %d)",
+            playlist_name,
+            len(spotify_playlists),
+            len(playlists),
+        )
+
+        if i == max_tries - 1:
             await bot.send_message(
-                message=f"⚠️ Spotify playlist *{markdown_escape(playlist)}* not found"
+                message=f"⚠️ Not all Spotify playlists found for syncing into *{markdown_escape(playlist_name)}*"
             )
             return
+
+        await asyncio.sleep(2)
 
     tidal_playlist = tidal.create_playlist(
         playlist_name=playlist_name, parent_folder_name="Eurovision", public=True
