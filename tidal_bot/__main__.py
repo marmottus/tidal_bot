@@ -261,7 +261,7 @@ async def main() -> None:
     try:
         await bot.start()
         while True:
-            # await _sync_command(bot, report_no_update=False)
+            await _sync_command(bot, report_no_update=False)
             logger.info("Next sync in %.2f seconds", config.sync_interval_seconds)
             await asyncio.sleep(config.sync_interval_seconds)
     except asyncio.CancelledError:

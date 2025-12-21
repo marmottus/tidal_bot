@@ -1,5 +1,4 @@
-/config/spotify.yaml
-/config/telegram.yaml
+/config/
 /.cache
 /.venv
 /.python-version
