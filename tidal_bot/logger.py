@@ -55,6 +55,7 @@ def _create_console_logger() -> logging.Handler:
     logging.getLogger("telegram.Bot").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("telegram").setLevel(logging.WARNING)
 
     return handler
 

@@ -1,12 +1,12 @@
 import asyncio
 import logging
-from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ValidationError
 
 from tidal_bot.api import Playlist, Track
 from tidal_bot.bot.telegram import TelegramBot, markdown_escape
+from tidal_bot.config import PLAYLISTS_YAML_PATH
 from tidal_bot.logger import init_logging
 from tidal_bot.spotify.spotify import MySpotify
 from tidal_bot.tidal.tidal import MyTidal
@@ -20,16 +20,14 @@ class SyncPlaylist(BaseModel):
 
 
 class PlaylistYaml(BaseModel):
+    sync_interval_seconds: int
     sync_playlists: list[SyncPlaylist]
 
 
 def _parse_playlist_to_sync() -> PlaylistYaml | None:
-    config_folder = Path(__file__).parent.parent / "config"
-    playlists_yaml = config_folder / "playlists.yaml"
-
-    if playlists_yaml.exists():
-        logger.info("Loading playlists to sync from %s", playlists_yaml)
-        with playlists_yaml.open() as f:
+    if PLAYLISTS_YAML_PATH.exists():
+        logger.info("Loading playlists to sync from %s", PLAYLISTS_YAML_PATH)
+        with PLAYLISTS_YAML_PATH.open() as f:
             yaml_data = yaml.safe_load(f)
             try:
                 config = PlaylistYaml.model_validate(yaml_data)
@@ -47,6 +45,7 @@ async def _merge_spotify_playlists(
     bot: TelegramBot,
     playlist_name: str,
     playlists: list[str],
+    report_no_update: bool = False,
 ) -> None:
     logger.info(
         "Syncing Spotify playlists %s into Tidal playlist %s",
@@ -155,6 +154,11 @@ async def _merge_spotify_playlists(
                 )
 
             await bot.send_message(message=message)
+    else:
+        if report_no_update:
+            await bot.send_message(
+                message=f"ℹ️ No new tracks to add to playlist *{markdown_escape(tidal_playlist.name)}*"
+            )
 
     has_reoganized = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
     if has_reoganized is None:
@@ -170,15 +174,16 @@ async def _merge_spotify_playlists(
         )
 
 
-async def main() -> None:
+async def _sync_command(bot: TelegramBot, report_no_update: bool = True) -> None:
     config = _parse_playlist_to_sync()
-    bot = TelegramBot()
-    spotify = MySpotify()
-    tidal = MyTidal()
 
     if config is None:
         logger.info("No playlists to sync found in configuration")
+        await bot.send_message(message="⚠️ No playlists to sync found in configuration")
         return
+
+    spotify = MySpotify()
+    tidal = MyTidal()
 
     try:
         await spotify.connect()
@@ -223,7 +228,44 @@ async def main() -> None:
             bot=bot,
             playlist_name=playlist.name,
             playlists=playlist.playlists,
+            report_no_update=report_no_update,
         )
+
+
+async def _list_command(bot: TelegramBot) -> None:
+    config = _parse_playlist_to_sync()
+
+    if config is None:
+        logger.info("No playlists to sync found in configuration")
+        await bot.send_message(message="⚠️ No playlists to sync found in configuration")
+        return
+
+    for dest_playlist in config.sync_playlists:
+        message = f"📋 *{markdown_escape(dest_playlist.name)}*\n"
+        for source_playlist in dest_playlist.playlists:
+            message += f"• {markdown_escape(source_playlist)}\n"
+
+        await bot.send_message(message=message)
+
+
+async def main() -> None:
+    bot = TelegramBot(sync_callback=_sync_command, list_callback=_list_command)
+
+    config = _parse_playlist_to_sync()
+
+    if config is None:
+        logger.info("No playlists to sync found in configuration")
+        await bot.send_message(message="⚠️ No playlists to sync found in configuration")
+        return
+
+    try:
+        await bot.start()
+        while True:
+            # await _sync_command(bot, report_no_update=False)
+            logger.info("Next sync in %.2f seconds", config.sync_interval_seconds)
+            await asyncio.sleep(config.sync_interval_seconds)
+    except asyncio.CancelledError:
+        await bot.stop()
 
 
 if __name__ == "__main__":
