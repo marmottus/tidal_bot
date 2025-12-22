@@ -8,6 +8,7 @@ from tidal_bot.api import Playlist, Track
 from tidal_bot.bot.telegram import TelegramBot, markdown_escape
 from tidal_bot.config import PLAYLISTS_YAML_PATH
 from tidal_bot.logger import init_logging
+from tidal_bot.rss.rss import Rss
 from tidal_bot.spotify.spotify import MySpotify
 from tidal_bot.tidal.tidal import MyTidal
 
@@ -248,6 +249,32 @@ async def _list_command(bot: TelegramBot) -> None:
         await bot.send_message(message=message)
 
 
+async def _sync_rss(bot: TelegramBot) -> None:
+    rss = Rss()
+    rss.load_entries()
+    rss.parse_rss_entries()
+
+    for entry in reversed(rss.entries):
+        if entry.notified:
+            continue
+
+        logger.info("Send RSS Entry: %s", entry)
+
+        message = "📰 Good news everyone\\!\n\n"
+        if entry.pub_date:
+            message += f"Published: {markdown_escape(entry.pub_date)}\n\n"
+        message += f"*{markdown_escape(entry.title)}*\n\n"
+        message += f"{markdown_escape(entry.description)}\n\n"
+
+        if entry.links:
+            message += f"[Link]({entry.links[0]})\n"
+
+        await bot.send_message(message=message)
+        entry.notified = True
+
+    rss.save_entries()
+
+
 async def main() -> None:
     bot = TelegramBot(sync_callback=_sync_command, list_callback=_list_command)
 
@@ -262,6 +289,7 @@ async def main() -> None:
         await bot.start()
         while True:
             await _sync_command(bot, report_no_update=False)
+            await _sync_rss(bot)
             logger.info("Next sync in %.2f seconds", config.sync_interval_seconds)
             await asyncio.sleep(config.sync_interval_seconds)
     except asyncio.CancelledError:
