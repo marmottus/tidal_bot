@@ -122,44 +122,40 @@ async def _merge_spotify_playlists(
 
         ordered_tracks += result.tracks
 
-        if result.added:
-            message = "\n".join(
-                [
-                    f"🎵 Playlist *{markdown_escape(tidal_playlist.name)}* synced",
-                    f"from *{markdown_escape(spotify_playlist.name)}*",
-                    "",
-                    f"✅ *Added*: {len(result.added)}",
-                    f"⏭️ *Skipped*: {len(result.skipped)}",
-                    f"❓ *Not Found*: {len(result.not_found)}",
-                    f"❌ *Error*: {len(result.add_error)}",
-                ]
-            )
+        message = "\n".join(
+            [
+                f"🎵 Playlist *{markdown_escape(tidal_playlist.name)}* synced",
+                f"from *{markdown_escape(spotify_playlist.name)}*",
+                "",
+                f"✅ *Added*: {len(result.added)}",
+                f"⏭️ *Skipped*: {len(result.skipped)}",
+                f"❓ *Not Found*: {len(result.not_found)}",
+                f"❌ *Error*: {len(result.add_error)}",
+            ]
+        )
 
+        if result.added:
             message += "\n\n*Added tracks:*\n"
             message += "\n".join(
                 f" 🎤 {markdown_escape(track.full_name())}" for track in result.added
             )
 
-            if result.not_found:
-                message += "\n\n*Tracks not found:*\n"
-                message += "\n".join(
-                    f" ❓ {markdown_escape(track.full_name())}"
-                    for track in result.not_found
-                )
-
-            if result.add_error:
-                message += "\n\n*Tracks with errors:*\n"
-                message += "\n".join(
-                    f" ❌ {markdown_escape(track.full_name())}"
-                    for track in result.add_error
-                )
-
-            await bot.send_message(message=message)
-    else:
-        if report_no_update:
-            await bot.send_message(
-                message=f"ℹ️ No new tracks to add to playlist *{markdown_escape(tidal_playlist.name)}*"
+        if result.not_found:
+            message += "\n\n*Tracks not found:*\n"
+            message += "\n".join(
+                f" ❓ {markdown_escape(track.full_name())}"
+                for track in result.not_found
             )
+
+        if result.add_error:
+            message += "\n\n*Tracks with errors:*\n"
+            message += "\n".join(
+                f" ❌ {markdown_escape(track.full_name())}"
+                for track in result.add_error
+            )
+
+        if result.added or report_no_update:
+            await bot.send_message(message=message)
 
     has_reoganized = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
     if has_reoganized is None:
