@@ -322,7 +322,6 @@ class MySpotify(Api):
                     "No tracks found in Spotify playlist %s",
                     spotify_playlist.name,
                 )
-                continue
 
             if spotify_playlist.external_urls is not None:
                 uri = spotify_playlist.external_urls.spotify
