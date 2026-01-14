@@ -120,7 +120,14 @@ async def _merge_spotify_playlists(
             len(result.not_found),
         )
 
-        ordered_tracks += result.tracks
+        for t in result.tracks:
+            if t not in ordered_tracks:
+                ordered_tracks.append(t)
+            else:
+                logger.debug(
+                    "Track %s already in ordered tracks, skipping duplicate",
+                    t.full_name(),
+                )
 
         message = "\n".join(
             [
@@ -157,15 +164,15 @@ async def _merge_spotify_playlists(
         if result.added or report_no_update:
             await bot.send_message(message=message)
 
-    has_reoganized = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
-    if has_reoganized is None:
+    has_reorganized = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
+    if has_reorganized is None:
         logger.error("Failed to reorganize playlist %s", tidal_playlist.name)
         await bot.send_message(
             message=f"⚠️ Failed to reorganize playlist *{markdown_escape(tidal_playlist.name)}*"
         )
         return
 
-    if has_reoganized:
+    if has_reorganized:
         await bot.send_message(
             message=f"✅ Playlist *{markdown_escape(tidal_playlist.name)}* has been reorganized"
         )
