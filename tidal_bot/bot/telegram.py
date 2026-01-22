@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -198,7 +199,25 @@ class TelegramBot:
         if message is None or message.text is None:
             return
 
-        await message.reply_text("Thank you!")
+        from_user = message.from_user
+        if from_user is None:
+            return
+
+        name = from_user.full_name
+
+        answer = random.choice(  # noqa: S311
+            (
+                f"Thank you {name}!",
+                f"Dziękuję {name}!",
+                f"Merci {name}!",
+                f"Grazie {name}!",
+                f"Danke schön {name}!",
+                f"ありがとう {name}!",
+                "😊😊😊",
+            )
+        )
+
+        await message.reply_text(markdown_escape(answer))
 
     async def _sync_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
