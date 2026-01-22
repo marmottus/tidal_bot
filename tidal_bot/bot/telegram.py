@@ -217,7 +217,7 @@ class TelegramBot:
             )
         )
 
-        await message.reply_text(markdown_escape(answer))
+        await message.reply_text(answer)
 
     async def _sync_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
