@@ -214,6 +214,7 @@ class TelegramBot:
                 f"Danke schön {name}!",
                 f"ありがとう {name}!",
                 "😊😊😊",
+                "XD",
             )
         )
 
