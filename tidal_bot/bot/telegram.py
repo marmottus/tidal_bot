@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import MessageLimit
-from telegram.error import TelegramError
+from telegram.error import RetryAfter, TelegramError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -149,18 +150,31 @@ class TelegramBot:
                 to_send += line + "\n"
                 i += 1
 
-            lines_to_send = lines_to_send[i:]
             to_send = to_send[:-1]  # remove last newline
+            lines_to_send = lines_to_send[i:]
 
-            try:
-                await self._bot.send_message(
-                    chat_id=self._config.chat_id,
-                    message_thread_id=message_thread_id,
-                    text=to_send,
-                    parse_mode="MarkdownV2",
-                )
-            except TelegramError as e:
-                logger.error("Failed to send Telegram message: %s", e)
+            for _ in range(5):
+                try:
+                    await self._bot.send_message(
+                        chat_id=self._config.chat_id,
+                        message_thread_id=message_thread_id,
+                        text=to_send,
+                        parse_mode="MarkdownV2",
+                    )
+                    break
+                except RetryAfter as e:
+                    retry_after = e.retry_after
+                    if isinstance(retry_after, timedelta):
+                        retry_after = int(retry_after.total_seconds())
+
+                    logger.warning(
+                        "Telegram API rate limit exceeded, retrying after %d seconds",
+                        retry_after,
+                    )
+
+                    await asyncio.sleep(retry_after)
+                except TelegramError as e:
+                    logger.error("Failed to send Telegram message: %s", e)
 
     def _is_comand_allowed(self, update: Update) -> bool:
         message = update.message
