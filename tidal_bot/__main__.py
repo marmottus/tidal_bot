@@ -136,6 +136,7 @@ async def _merge_spotify_playlists(
                 f"🎵 Playlist *{markdown_escape(tidal_playlist.name)}* synced",
                 f"from *{markdown_escape(spotify_playlist.name)}*",
                 "",
+                f"🔗 [Open in Tidal]({tidal_playlist.uri})",
                 f"✅ *Added*: {len(result.added)}",
                 f"⏭️ *Skipped*: {len(result.skipped)}",
                 f"❓ *Not Found*: {len(result.not_found)}",

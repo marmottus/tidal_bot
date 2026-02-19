@@ -353,7 +353,10 @@ class MyTidal(Api):
                 return None
 
         return Playlist(
-            name=playlist_name, tracks=existing_tracks, api_playlist=tidal_playlist
+            name=playlist_name,
+            tracks=existing_tracks,
+            api_playlist=tidal_playlist,
+            uri=tidal_playlist.listen_url,
         )
 
     def reorganize_playlist(self, playlist: Playlist, *tracks: Track) -> bool | None:
