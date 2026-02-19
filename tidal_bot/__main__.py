@@ -18,6 +18,7 @@ logger = logging.getLogger("main")
 class SyncPlaylist(BaseModel):
     name: str
     playlists: list[str]
+    folder: str
 
 
 class PlaylistYaml(BaseModel):
@@ -45,6 +46,7 @@ async def _merge_spotify_playlists(
     tidal: MyTidal,
     bot: TelegramBot,
     playlist_name: str,
+    parent_folder_name: str,
     playlists: list[str],
     report_no_update: bool = False,
 ) -> None:
@@ -89,7 +91,7 @@ async def _merge_spotify_playlists(
         await asyncio.sleep(2)
 
     tidal_playlist = tidal.create_playlist(
-        playlist_name=playlist_name, parent_folder_name="Eurovision", public=True
+        playlist_name=playlist_name, parent_folder_name=parent_folder_name, public=True
     )
     if tidal_playlist is None:
         logger.error("Failed to create or get Tidal playlist %s", playlist_name)
@@ -231,6 +233,7 @@ async def _sync_command(bot: TelegramBot, report_no_update: bool = True) -> None
             tidal=tidal,
             bot=bot,
             playlist_name=playlist.name,
+            parent_folder_name=playlist.folder,
             playlists=playlist.playlists,
             report_no_update=report_no_update,
         )
