@@ -115,11 +115,21 @@ class Playlist:
     uri: str | None = None
     image: bytes | None = None
 
+    @property
+    def duration(self) -> timedelta:
+        total_duration = timedelta()
+        for track in self.tracks:
+            total_duration += track.duration
+
+        return total_duration
+
     def __str__(self) -> str:
         output = f"Playlist: {self.name} - {len(self.tracks)} track(s)"
 
         if self.uri:
             output += f"\n  URI: {self.uri}"
+
+        output += f"\nTotal duration: {self.duration}"
 
         if not self.tracks:
             return output
