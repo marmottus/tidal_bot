@@ -101,6 +101,9 @@ async def _merge_spotify_playlists(
         return
 
     ordered_tracks: list[Track] = []
+    playlist_updated = report_no_update
+    total_num_tracks = 0
+
     for spotify_playlist in spotify_playlists:
         result = tidal.merge_playlists(
             from_playlist=spotify_playlist,
@@ -131,18 +134,21 @@ async def _merge_spotify_playlists(
                     t.full_name(),
                 )
 
+        num_tracks = len(result.added) + len(result.skipped)
         message = "\n".join(
             [
                 f"🎵 Playlist *{markdown_escape(tidal_playlist.name)}* synced",
                 f"from *{markdown_escape(spotify_playlist.name)}*",
                 "",
-                f"🔗 [Open in Tidal]({tidal_playlist.uri})",
+                f"#️⃣ *Tracks*: {num_tracks}",
                 f"✅ *Added*: {len(result.added)}",
                 f"⏭️ *Skipped*: {len(result.skipped)}",
                 f"❓ *Not Found*: {len(result.not_found)}",
                 f"❌ *Error*: {len(result.add_error)}",
             ]
         )
+
+        total_num_tracks += num_tracks
 
         if result.added:
             message += "\n\n*Added tracks:*\n"
@@ -165,6 +171,7 @@ async def _merge_spotify_playlists(
             )
 
         if result.added or report_no_update:
+            playlist_updated = True
             await bot.send_message(message=message)
 
     has_reorganized = tidal.reorganize_playlist(tidal_playlist, *ordered_tracks)
@@ -176,9 +183,22 @@ async def _merge_spotify_playlists(
         return
 
     if has_reorganized:
+        playlist_updated = True
         await bot.send_message(
             message=f"✅ Playlist *{markdown_escape(tidal_playlist.name)}* has been reorganized"
         )
+
+    if playlist_updated:
+        message = "\n".join(
+            [
+                f"✅ Playlist *{markdown_escape(tidal_playlist.name)}* synced successfully",
+                f"🔗 [Open in Tidal]({tidal_playlist.uri})",
+                f"#️⃣ *Tracks*: {total_num_tracks}",
+                f"⌛ *Duration*: {tidal_playlist.duration}",
+            ]
+        )
+
+        await bot.send_message(message=message)
 
 
 async def _sync_command(bot: TelegramBot, report_no_update: bool = True) -> None:
