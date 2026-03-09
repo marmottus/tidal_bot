@@ -202,6 +202,9 @@ async def _merge_spotify_playlists(
 
 
 async def _sync_command(bot: TelegramBot, report_no_update: bool = True) -> None:
+    await bot.send_message(message="This command is currently disabled. Fuck Spotify")
+    return
+
     config = _parse_playlist_to_sync()
 
     if config is None:
@@ -261,6 +264,9 @@ async def _sync_command(bot: TelegramBot, report_no_update: bool = True) -> None
 
 
 async def _list_command(bot: TelegramBot) -> None:
+    await bot.send_message(message="This command is currently disabled. Fuck Spotify")
+    return
+
     config = _parse_playlist_to_sync()
 
     if config is None:
@@ -315,7 +321,7 @@ async def main() -> None:
     try:
         await bot.start()
         while True:
-            await _sync_command(bot, report_no_update=False)
+            # await _sync_command(bot, report_no_update=False)
             await _sync_rss(bot)
             logger.info("Next sync in %.2f seconds", config.sync_interval_seconds)
             await asyncio.sleep(config.sync_interval_seconds)
