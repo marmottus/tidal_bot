@@ -1,4 +1,6 @@
+import difflib
 import logging
+import unicodedata
 from pathlib import Path
 
 import yaml
@@ -46,10 +48,15 @@ def _parse_playlist_file(yaml_path: Path) -> PlaylistFile | None:
         return None
 
 
-def _song_matches_track(song: SongEntry, track: Track) -> bool:
-    if song.song.strip().casefold() != track.name.strip().casefold():
-        return False
+def _normalize_title(title: str) -> str:
+    return (
+        unicodedata.normalize("NFD", title.strip().casefold())
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
 
+
+def _artists_match(song: SongEntry, track: Track) -> bool:
     song_artists = normalize_artist_name(song.artist)
     track_artists: set[str] = set()
     for artist in track.artists:
@@ -58,9 +65,32 @@ def _song_matches_track(song: SongEntry, track: Track) -> bool:
     return bool(song_artists & track_artists)
 
 
-def _rank_candidates(song: SongEntry, candidates: list[Track]) -> list[Track]:
-    """Order candidates with exact title/artist matches first."""
-    return sorted(candidates, key=lambda t: not _song_matches_track(song, t))
+def _titles_are_similar(a: str, b: str) -> bool:
+    normalized_a = _normalize_title(a)
+    normalized_b = _normalize_title(b)
+
+    if normalized_a in normalized_b or normalized_b in normalized_a:
+        return True
+
+    return difflib.SequenceMatcher(None, normalized_a, normalized_b).ratio() >= 0.8
+
+
+def _song_matches_track(song: SongEntry, track: Track) -> bool:
+    if _normalize_title(song.song) != _normalize_title(track.name):
+        return False
+
+    return _artists_match(song, track)
+
+
+def _filter_candidates(song: SongEntry, candidates: list[Track]) -> list[Track]:
+    """Keep only relevant tracks (artist and similar title), exact matches first."""
+    relevant = [
+        track
+        for track in candidates
+        if _artists_match(song, track) and _titles_are_similar(song.song, track.name)
+    ]
+
+    return sorted(relevant, key=lambda t: not _song_matches_track(song, t))[:5]
 
 
 def _ask_track_choice(playlist_names: str, num_candidates: int) -> int | None:
@@ -169,8 +199,8 @@ async def import_playlist(yaml_path: Path) -> int:
             already_present.append(song)
             continue
 
-        candidates = _rank_candidates(
-            song, tidal.search_tracks(f"{song.song} {song.artist}", limit=5)
+        candidates = _filter_candidates(
+            song, tidal.search_tracks(f"{song.song} {song.artist}", limit=10)
         )
 
         if not candidates:
