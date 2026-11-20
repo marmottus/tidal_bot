@@ -217,7 +217,7 @@ async def import_playlist(yaml_path: Path) -> int:
     for song, playlist_name in errors:
         logger.info("  ❌ %s (%s)", song.full_name(), playlist_name)
 
-    if any(added.values()) or errors:
-        await _send_summary(yaml_path, playlists, added, not_found, errors)
+    if any(added.values()) or not_found or declined or errors:
+        await _send_summary(yaml_path, playlists, added, not_found + declined, errors)
 
     return 0 if not errors else 1
