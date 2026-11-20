@@ -542,6 +542,41 @@ class MyTidal(Api):
 
         return None
 
+    def search_tracks(self, query: str, limit: int = 5) -> list[Track]:
+        logger.info("Searching Tidal tracks for query: %s", query)
+
+        result = _retry_on_error(
+            self._session.search, query, models=[TidalTrack], limit=limit
+        )
+        if result is None:
+            logger.debug("No result for search query: %s", query)
+            return []
+
+        tracks: list[Track] = []
+        for tidal_track in result["tracks"]:
+            found_track = _parse_track(tidal_track)
+            if found_track is not None:
+                tracks.append(found_track)
+
+        return tracks
+
+    def add_track(self, playlist: Playlist, track: Track) -> bool:
+        if not isinstance(playlist.api_playlist, UserPlaylist):
+            logger.error("Playlist is not a Tidal UserPlaylist")
+            return False
+
+        added = _retry_on_error(playlist.api_playlist.add_by_isrc, track.isrc)
+        if added is None or not added:
+            logger.error(
+                "❌ Error adding track %s to playlist %s",
+                track.full_name(),
+                playlist.name,
+            )
+            return False
+
+        playlist.tracks.append(track)
+        return True
+
     def search_track(self, track: Track) -> Track | None:
         logger.info("Searching for track: %s", track.full_name())
 

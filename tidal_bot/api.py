@@ -29,7 +29,7 @@ class Album:
         return output
 
 
-def _normalize_artist_name(name: str) -> set[str]:
+def normalize_artist_name(name: str) -> set[str]:
     """Normalize artist name for comparison."""
     lower = (
         unicodedata.normalize("NFD", name.strip().lower())
@@ -88,10 +88,10 @@ class Track:
 
         self_artists_lower = set()
         for a in self.artists:
-            self_artists_lower.update(_normalize_artist_name(a))
+            self_artists_lower.update(normalize_artist_name(a))
         other_artists_lower = set()
         for a in other.artists:
-            other_artists_lower.update(_normalize_artist_name(a))
+            other_artists_lower.update(normalize_artist_name(a))
 
         if self_artists_lower.intersection(other_artists_lower) == set():
             return False

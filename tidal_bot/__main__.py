@@ -1,5 +1,8 @@
+import argparse
 import asyncio
 import logging
+import sys
+from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -7,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 from tidal_bot.api import Playlist, Track
 from tidal_bot.bot.telegram import TelegramBot, markdown_escape
 from tidal_bot.config import CONFIG_FILE, PLAYLISTS_YAML_PATH
+from tidal_bot.import_playlist import import_playlist
 from tidal_bot.logger import init_logging
 from tidal_bot.rss.rss import Rss
 from tidal_bot.spotify.spotify import MySpotify
@@ -359,7 +363,24 @@ async def main() -> None:
             await bot.stop()
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="tidal_bot")
+    parser.add_argument(
+        "--import-playlist",
+        type=Path,
+        metavar="YAML_FILE",
+        help="parse a YAML playlist file, create the Tidal playlist (in the "
+        "optional folder) if it does not exist and interactively confirm "
+        "every song not yet in the playlist",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
     init_logging()
+
+    args = _parse_args()
+    if args.import_playlist is not None:
+        sys.exit(asyncio.run(import_playlist(args.import_playlist)))
 
     asyncio.run(main(), debug=False)

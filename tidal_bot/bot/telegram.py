@@ -59,12 +59,10 @@ class TelegramConfig(BaseModel):
     allowed_users: list[int]
 
 
-class TelegramBot:
-    def __init__(
-        self,
-        sync_callback: Callable[["TelegramBot"], Awaitable[None]],
-        list_callback: Callable[["TelegramBot"], Awaitable[None]],
-    ) -> None:
+class TelegramSender:
+    """Stripped down Telegram client that can only send messages."""
+
+    def __init__(self) -> None:
         config_file = Path(__file__).parent.parent.parent / "config" / "telegram.yaml"
         if not config_file.exists():
             logger.error("Telegram config file %s does not exist", config_file)
@@ -86,10 +84,61 @@ class TelegramBot:
                 )
                 raise
 
+        self._bot = Bot(token=self._config.bot_token)
+
+    async def send_message(
+        self,
+        message: str,
+        message_thread_id: int | None = None,
+    ) -> None:
+        lines_to_send = message.split("\n")
+        while lines_to_send:
+            to_send = ""
+            i = 0
+            for line in lines_to_send:
+                if len(to_send) + len(line) + 1 > MessageLimit.MAX_TEXT_LENGTH:
+                    break
+                to_send += line + "\n"
+                i += 1
+
+            to_send = to_send[:-1]  # remove last newline
+            lines_to_send = lines_to_send[i:]
+
+            for _ in range(5):
+                try:
+                    await self._bot.send_message(
+                        chat_id=self._config.chat_id,
+                        message_thread_id=message_thread_id,
+                        text=to_send,
+                        parse_mode="MarkdownV2",
+                    )
+                    break
+                except RetryAfter as e:
+                    retry_after = e.retry_after
+                    if isinstance(retry_after, timedelta):
+                        retry_after = int(retry_after.total_seconds())
+
+                    logger.warning(
+                        "Telegram API rate limit exceeded, retrying after %d seconds",
+                        retry_after,
+                    )
+
+                    await asyncio.sleep(retry_after)
+                except TelegramError as e:
+                    logger.error("Failed to send Telegram message: %s", e)
+
+
+class TelegramBot(TelegramSender):
+    def __init__(
+        self,
+        sync_callback: Callable[[TelegramBot], Awaitable[None]],
+        list_callback: Callable[[TelegramBot], Awaitable[None]],
+    ) -> None:
+        super().__init__()
+
         self._sync_callback = sync_callback
         self._list_callback = list_callback
 
-        self._bot = Bot(token=self._config.bot_token)
         self._app = Application.builder().bot(self._bot).build()
 
         self._app.add_handler(CommandHandler("sync", self._sync_command))
@@ -134,47 +183,6 @@ class TelegramBot:
             self._polling_task = None
 
         logger.info("Telegram Bot stopped")
-
-    async def send_message(
-        self,
-        message: str,
-        message_thread_id: int | None = None,
-    ) -> None:
-        lines_to_send = message.split("\n")
-        while lines_to_send:
-            to_send = ""
-            i = 0
-            for line in lines_to_send:
-                if len(to_send) + len(line) + 1 > MessageLimit.MAX_TEXT_LENGTH:
-                    break
-                to_send += line + "\n"
-                i += 1
-
-            to_send = to_send[:-1]  # remove last newline
-            lines_to_send = lines_to_send[i:]
-
-            for _ in range(5):
-                try:
-                    await self._bot.send_message(
-                        chat_id=self._config.chat_id,
-                        message_thread_id=message_thread_id,
-                        text=to_send,
-                        parse_mode="MarkdownV2",
-                    )
-                    break
-                except RetryAfter as e:
-                    retry_after = e.retry_after
-                    if isinstance(retry_after, timedelta):
-                        retry_after = int(retry_after.total_seconds())
-
-                    logger.warning(
-                        "Telegram API rate limit exceeded, retrying after %d seconds",
-                        retry_after,
-                    )
-
-                    await asyncio.sleep(retry_after)
-                except TelegramError as e:
-                    logger.error("Failed to send Telegram message: %s", e)
 
     def _is_comand_allowed(self, update: Update) -> bool:
         message = update.message
