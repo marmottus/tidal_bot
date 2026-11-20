@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 
 from tidal_bot.api import Playlist, Track
 from tidal_bot.bot.telegram import TelegramBot, markdown_escape
-from tidal_bot.config import PLAYLISTS_YAML_PATH
+from tidal_bot.config import CONFIG_FILE, PLAYLISTS_YAML_PATH
 from tidal_bot.logger import init_logging
 from tidal_bot.rss.rss import Rss
 from tidal_bot.spotify.spotify import MySpotify
@@ -24,6 +24,28 @@ class SyncPlaylist(BaseModel):
 class PlaylistYaml(BaseModel):
     sync_interval_seconds: int
     sync_playlists: list[SyncPlaylist]
+    enable_bot: bool = False
+
+
+class Config(BaseModel):
+    enable_bot: bool = False
+    enable_rss: bool = False
+    sync_interval_seconds: int = 3600
+
+
+def _parse_config() -> Config:
+    if not CONFIG_FILE.exists():
+        return Config()
+
+    logger.info("Loading playlists to sync from %s", CONFIG_FILE)
+    with CONFIG_FILE.open() as f:
+        yaml_data = yaml.safe_load(f)
+        try:
+            config = Config.model_validate(yaml_data)
+            return config
+        except ValidationError as e:
+            logger.error("Failed to parse config file: %s", e)
+            return Config()
 
 
 def _parse_playlist_to_sync() -> PlaylistYaml | None:
@@ -286,7 +308,7 @@ async def _list_command(bot: TelegramBot) -> None:
         await bot.send_message(message=message)
 
 
-async def _sync_rss(bot: TelegramBot) -> None:
+async def _sync_rss(bot: TelegramBot | None) -> None:
     rss = Rss()
     rss.load_entries()
     rss.parse_rss_entries()
@@ -306,31 +328,35 @@ async def _sync_rss(bot: TelegramBot) -> None:
         if entry.links:
             message += f"[Link]({entry.links[0]})\n"
 
-        await bot.send_message(message=message)
+        if bot is not None:
+            await bot.send_message(message=message)
+
         entry.notified = True
 
     rss.save_entries()
 
 
 async def main() -> None:
-    bot = TelegramBot(sync_callback=_sync_command, list_callback=_list_command)
+    config = _parse_config()
 
-    config = _parse_playlist_to_sync()
-
-    if config is None:
-        logger.info("No playlists to sync found in configuration")
-        await bot.send_message(message="⚠️ No playlists to sync found in configuration")
-        return
+    bot: TelegramBot | None = None
+    if config.enable_bot:
+        logger.info("Starting Telegram bot")
+        bot = TelegramBot(sync_callback=_sync_command, list_callback=_list_command)
 
     try:
-        await bot.start()
+        if bot is not None:
+            await bot.start()
+
         while True:
             # await _sync_command(bot, report_no_update=False)
-            await _sync_rss(bot)
-            logger.info("Next sync in %.2f seconds", config.sync_interval_seconds)
+            if config.enable_rss:
+                await _sync_rss(bot)
+            logger.info("Next sync in %u seconds", config.sync_interval_seconds)
             await asyncio.sleep(config.sync_interval_seconds)
     except asyncio.CancelledError:
-        await bot.stop()
+        if bot is not None:
+            await bot.stop()
 
 
 if __name__ == "__main__":
